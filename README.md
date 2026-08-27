@@ -10,7 +10,7 @@
 - **能力自动推断**：
   - 显式声明 `capabilities` 时按标记解析（工具调用 / 视觉 / 推理）。
   - 未声明时默认支持工具调用，视觉按 `False`，推理按 `reasoning` 字段是否存在。
-- **安全合并**：与现有 `models.json` 按 `id` 去重合并，Cherry Studio 数据优先。
+- **覆盖写入**：以导入集完全替换现有 `models.json`（不保留既不属于 Cherry Studio 的模型），写入前仍自动备份原文件。
 - **写入前自动备份**：原文件先备份再覆盖，避免误改。
 
 ## 使用方法
@@ -37,7 +37,9 @@ python cherry_to_workbuddy.py
 - **直接双击 `run.bat`**：执行真实迁移并写入 `models.json`。
 - **预览不写入**：在文件资源管理器中按住 `Shift` 右键「在此处打开命令窗口」，运行 `run.bat dry`；或在任意终端执行等价命令。
 
-`run.bat` 会自动探测 Python 运行时：优先使用 WorkBuddy 托管的 Python，回退到系统的 `py` / `python`，均未找到时提示错误并退出。
+`run.bat` 会自动探测 Python 运行时：优先使用 WorkBuddy 托管的 Python（`%USERPROFILE%\.workbuddy\...`），回退到系统的 `py` / `python`，均未找到时提示错误并退出。窗口开头会显示标题与 Python 路径，结束前暂停，便于查看结果。
+
+**排障**：若双击仍一闪而过或全黑，请在该文件夹按住 `Shift` 右键「在此处打开命令窗口 / 终端」，手动执行 `run.bat`（或 `run.bat dry`）查看具体报错信息。
 
 ## 跳过规则
 

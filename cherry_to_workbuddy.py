@@ -202,31 +202,6 @@ def build_wb_entry(provider, model):
     return entry
 
 
-def merge_entries(existing, imported):
-    """合并现有条目与导入条目，按 ``id`` 去重（导入优先）。
-
-    Args:
-        existing (list[dict]): 现有 WorkBuddy 模型列表。
-        imported (list[dict]): 本次从 Cherry Studio 导入的模型列表。
-
-    Returns:
-        tuple[list[dict], dict]: (合并后列表, 统计信息)。
-    """
-    by_id = {}
-    for e in existing:
-        by_id[e.get("id")] = e
-    added, updated = 0, 0
-    for imp in imported:
-        iid = imp.get("id")
-        if iid in by_id:
-            updated += 1
-        else:
-            added += 1
-        by_id[iid] = imp  # 导入数据覆盖
-    merged = list(by_id.values())
-    return merged, {"added": added, "updated": updated, "total": len(merged)}
-
-
 def main():
     dry_run = "--dry-run" in sys.argv
     print(f"[info] Cherry DB : {CHERRY_DB}")
@@ -255,26 +230,15 @@ def main():
         seen.setdefault(iid, 0)
         seen[iid] += 1
 
-    existing = []
-    if os.path.exists(WB_MODELS):
-        try:
-            with open(WB_MODELS, "r", encoding="utf-8") as f:
-                existing = json.load(f)
-            if not isinstance(existing, list):
-                existing = []
-        except (json.JSONDecodeError, OSError):
-            existing = []
-
-    merged, stats = merge_entries(existing, imported)
-
-    # 按名称排序，便于阅读与管理
+    # 覆盖模式：以 Cherry Studio 导入集完全替换现有 models.json，
+    # 不保留 WorkBuddy 中既不属于 Cherry Studio 的模型；写入前仍自动备份。
+    merged = imported
     merged.sort(key=lambda e: e.get("name", ""))
 
     print(f"[info] 已启用模型(含 provider): {len(raw)}")
     print(f"[info] 可导入(已过滤无URL/embedding): {len(imported)}")
     print(f"[info] 跳过(无URL/embedding): {skipped_no_url}")
-    print(f"[info] 合并统计: 新增={stats['added']} 更新={stats['updated']} "
-          f"总计={stats['total']}")
+    print(f"[info] 模式: 覆盖写入，将写入 {len(merged)} 条模型")
 
     if dry_run:
         print("[info] DRY-RUN 模式，未写入文件。预览前 5 条:")

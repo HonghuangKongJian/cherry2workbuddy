@@ -1,24 +1,50 @@
 @echo off
-cd /d "%~dp0"
+title cherry2workbuddy migration
+pushd "%~dp0"
 
-REM 传入 dry 参数时仅预览、不写入：run.bat dry
+echo ============================================================
+echo   Cherry Studio to WorkBuddy model migration
+echo ============================================================
+echo.
+
+REM pass "dry" to preview only, no write: run.bat dry
 set "ARGS="
-if /i "%1"=="dry" set "ARGS=--dry-run"
+if /i "%~1"=="dry" set "ARGS=--dry-run"
 
-REM 运行时探测：优先 WorkBuddy 托管 Python，回退系统 python / py
+REM detect python: prefer WorkBuddy managed python, fallback to py / python
 set "PY="
-if exist "C:\Users\amw\.workbuddy\binaries\python\versions\3.13.12\python.exe" (
-    set "PY=C:\Users\amw\.workbuddy\binaries\python\versions\3.13.12\python.exe"
+if exist "%USERPROFILE%\.workbuddy\binaries\python\versions\3.13.12\python.exe" (
+    set "PY=%USERPROFILE%\.workbuddy\binaries\python\versions\3.13.12\python.exe"
 ) else (
     where py >nul 2>nul && set "PY=py"
-    if not defined PY ( where python >nul 2>nul && set "PY=python" )
+)
+if not defined PY (
+    where python >nul 2>nul && set "PY=python"
 )
 
 if not defined PY (
-    echo [error] 未找到 Python 运行时，请先安装 Python 或 WorkBuddy。
+    echo [ERROR] Python runtime not found. Please install Python or WorkBuddy.
+    echo.
     pause
+    popd
     exit /b 1
 )
 
+echo [info] Python : %PY%
+echo [info] Workdir: %CD%
+echo [info] Args   : %ARGS%
+echo.
+
 %PY% cherry_to_workbuddy.py %ARGS%
-pause
+set "RC=%errorlevel%"
+
+echo.
+if %RC%==0 (
+    echo [OK] Done. models.json overwritten.
+) else (
+    echo [FAIL] Script exited with code: %RC%
+)
+echo.
+echo Press any key to close...
+pause >nul
+popd
