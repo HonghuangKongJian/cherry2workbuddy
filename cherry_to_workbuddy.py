@@ -10,10 +10,10 @@ WorkBuddy 模型配置为 ``~/.workbuddy/models.json`` 中的模型数组。
 
 本脚本支持：
     * 仅导入「启用」的模型（模型启用且所属 Provider 启用）。
-    * 跳过无 base URL 或仅含 ``embedding`` 能力的模型。
-    * 能力字段（工具调用 / 视觉 / 推理）依据 Cherry Studio 数据推断。
-    * 与现有 ``models.json`` 合并，按 ``id`` 去重，Cherry Studio 数据优先。
-    * 写入前自动备份原文件。
+    * 跳过无 base URL、无 API Key 或非聊天模型（embedding / rerank / 生图）的模型。
+    * 能力字段（工具调用 / 视觉 / 音频 / 视频 / 推理）依据 Cherry Studio 的
+      ``capabilities``、``input_modalities``、``output_modalities`` 推断。
+    * 覆盖写入 ``models.json``，写入前自动备份原文件。
 """
 
 import json
@@ -80,9 +80,10 @@ def read_cherry_models(db_path):
     for p in cur.fetchall():
         providers[p["provider_id"]] = dict(p)
 
-    # 读取已启用 Model
+    # 读取已启用 Model（含输入/输出模态与端点类型，用于推断能力）
     cur.execute(
         "SELECT provider_id, model_id, name, is_enabled, capabilities, "
+        "input_modalities, output_modalities, endpoint_types, "
         "reasoning FROM user_model WHERE is_enabled = 1"
     )
     models = cur.fetchall()
@@ -138,27 +139,81 @@ def _resolve_api_key(provider):
 def _derive_capabilities(model):
     """推断 WorkBuddy 所需的能力布尔字段。
 
-    Cherry Studio 的 ``capabilities`` 字段大多为空，因此采用如下规则：
-        * 若显式声明能力：直接按标记解析。
-        * 若未声明：默认支持工具调用（OpenAI 兼容聊天端点普遍支持），
-          视觉按 False，推理按 ``reasoning`` 字段是否存在。
+    Cherry Studio 的能力分散在多个字段中：
+        * ``capabilities``: 可能包含 ``reasoning``、``function-call``、
+          ``embedding`` 等。
+        * ``input_modalities`` / ``output_modalities``: 可能包含
+          ``image``、``audio``、``video`` 等。
+        * ``reasoning``: JSON 对象，存在即表示支持推理。
+
+    采用规则：
+        * 工具调用：``capabilities`` 含 ``tools`` 或 ``function-call`` 为真；
+          否则默认 ``True``（OpenAI 兼容聊天端点普遍支持）。
+        * 视觉（图片输入）：``input_modalities`` 含 ``image``，或
+          ``capabilities`` 含 vision/image 相关标记为真；否则 ``False``。
+        * 音频/视频输入：``input_modalities`` 含对应标记即真。
+        * 推理：``reasoning`` 字段存在，或 ``capabilities`` 含 ``reasoning``。
 
     Args:
         model (dict): ``user_model`` 行字典。
 
     Returns:
-        tuple[bool, bool, bool]: (supports_tool_call, supports_images,
+        tuple[bool, bool, bool, bool, bool]: (supports_tool_call,
+            supports_images, supports_audio, supports_video,
             supports_reasoning)。
     """
     caps = _load_json_field(model.get("capabilities")) or []
-    has_reasoning_field = model.get("reasoning") is not None
-    if not caps:
-        return (True, False, has_reasoning_field)
     caps_lower = [str(c).lower() for c in caps]
-    tool = "tools" in caps_lower
-    vision = any(tok in cap for cap in caps_lower for tok in _VISION_TOKENS)
+    input_mods = _load_json_field(model.get("input_modalities")) or []
+    input_mods_lower = [str(m).lower() for m in input_mods]
+    output_mods = _load_json_field(model.get("output_modalities")) or []
+    output_mods_lower = [str(m).lower() for m in output_mods]
+    has_reasoning_field = model.get("reasoning") is not None
+
+    tool = ("tools" in caps_lower or "function-call" in caps_lower)
+    vision = (
+        "image" in input_mods_lower
+        or any(tok in cap for cap in caps_lower for tok in _VISION_TOKENS)
+    )
+    audio = "audio" in input_mods_lower or "audio" in output_mods_lower
+    video = "video" in input_mods_lower or "video" in output_mods_lower
     reasoning = has_reasoning_field or "reasoning" in caps_lower
-    return (tool, vision, reasoning)
+
+    # 没有任何显式能力标记时，按传统聊天模型默认：支持工具，不支持多模态
+    if not caps and not input_mods and not output_mods:
+        tool = True
+        vision = False
+        audio = False
+        video = False
+
+    return (tool, vision, audio, video, reasoning)
+
+
+def _is_chat_model(model):
+    """判断该模型是否为可导入的聊天模型，排除嵌入/重排/生图等类型。
+
+    Args:
+        model (dict): ``user_model`` 行字典。
+
+    Returns:
+        bool: True 表示为聊天模型；False 表示应跳过。
+    """
+    caps = _load_json_field(model.get("capabilities")) or []
+    caps_lower = [str(c).lower() for c in caps]
+    if any(t in caps_lower for t in ("embedding", "rerank", "image_generation")):
+        return False
+
+    endpoint_types = _load_json_field(model.get("endpoint_types")) or []
+    et_lower = [str(t).lower() for t in endpoint_types]
+    if any(t in et_lower for t in ("image-generation", "rerank")):
+        return False
+
+    output_mods = _load_json_field(model.get("output_modalities")) or []
+    if "image" in [str(m).lower() for m in output_mods]:
+        # 输出模态为图片，视为生图模型而非聊天模型
+        return False
+
+    return True
 
 
 def build_wb_entry(provider, model):
@@ -170,7 +225,7 @@ def build_wb_entry(provider, model):
 
     Returns:
         dict | None: WorkBuddy 模型条目；不可导入（无 base URL / 无 API Key /
-            embedding 模型 / 无 model_id）时返回 None。
+            非聊天模型 / 无 model_id）时返回 None。
     """
     base_url = _resolve_base_url(provider)
     if not base_url:
@@ -180,16 +235,15 @@ def build_wb_entry(provider, model):
     if not api_key:
         return None  # 无可用 API Key，无法鉴权，跳过
 
-    caps = _load_json_field(model.get("capabilities")) or []
-    if "embedding" in [str(c).lower() for c in caps]:
-        return None  # embedding 模型非聊天模型，跳过
+    if not _is_chat_model(model):
+        return None  # 嵌入 / 重排 / 生图等模型非聊天模型，跳过
 
     model_id = model.get("model_id")
     if not model_id:
         return None
 
     display = model.get("name") or model_id
-    tool, vision, reasoning = _derive_capabilities(model)
+    tool, vision, audio, video, reasoning = _derive_capabilities(model)
 
     entry = {
         "id": model_id,
@@ -202,6 +256,10 @@ def build_wb_entry(provider, model):
         "supportsReasoning": reasoning,
         "useCustomProtocol": False,
     }
+    if audio:
+        entry["supportsAudio"] = True
+    if video:
+        entry["supportsVideo"] = True
     if reasoning:
         entry["reasoning"] = {"canDisableThinking": True}
     return entry
@@ -282,8 +340,8 @@ def main():
     merged.sort(key=lambda e: e.get("name", ""))
 
     print(f"[info] 已启用模型(含 provider): {len(raw)}")
-    print(f"[info] 可导入(已过滤无URL/无Key/embedding): {len(imported)}")
-    print(f"[info] 跳过(无URL/无Key/embedding): {skipped}")
+    print(f"[info] 可导入(已过滤无URL/无Key/非聊天模型): {len(imported)}")
+    print(f"[info] 跳过(无URL/无Key/非聊天模型): {skipped}")
     print(f"[info] 模式: 覆盖写入，将写入 {len(merged)} 条模型")
 
     if dry_run:
