@@ -267,6 +267,9 @@ def main():
 
     merged, stats = merge_entries(existing, imported)
 
+    # 按名称排序，便于阅读与管理
+    merged.sort(key=lambda e: e.get("name", ""))
+
     print(f"[info] 已启用模型(含 provider): {len(raw)}")
     print(f"[info] 可导入(已过滤无URL/embedding): {len(imported)}")
     print(f"[info] 跳过(无URL/embedding): {skipped_no_url}")

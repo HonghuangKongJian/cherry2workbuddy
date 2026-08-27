@@ -30,6 +30,15 @@ python cherry_to_workbuddy.py
 | `CHERRY_DB`  | `%APPDATA%/CherryStudio/Data/cherrystudio.sqlite`   |
 | `WB_MODELS`  | `~/.workbuddy/models.json`                          |
 
+## 双击运行（Windows）
+
+项目根目录提供 `run.bat`，双击即可在命令行窗口中执行迁移（结束后 `pause` 暂停，便于查看结果）：
+
+- **直接双击 `run.bat`**：执行真实迁移并写入 `models.json`。
+- **预览不写入**：在文件资源管理器中按住 `Shift` 右键「在此处打开命令窗口」，运行 `run.bat dry`；或在任意终端执行等价命令。
+
+`run.bat` 会自动探测 Python 运行时：优先使用 WorkBuddy 托管的 Python，回退到系统的 `py` / `python`，均未找到时提示错误并退出。
+
 ## 跳过规则
 
 以下模型不会被导入：
