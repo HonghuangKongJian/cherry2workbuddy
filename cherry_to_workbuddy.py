@@ -285,8 +285,9 @@ def print_provider_summary(raw):
         g["models"].append(m.get("name") or m.get("model_id"))
 
     def _order(g):
-        # 有 Key 的 provider 排在前，其次按名称
-        return (0 if _resolve_api_key(g["provider"]) else 1, g["name"])
+        # 有 Key 的 provider 排在前，其次按名称（忽略大小写）
+        return (0 if _resolve_api_key(g["provider"]) else 1,
+                g["name"].casefold())
 
     ordered = sorted(groups.values(), key=_order)
     with_key = [g for g in ordered if _resolve_api_key(g["provider"])]
@@ -337,7 +338,8 @@ def main():
     # 覆盖模式：以 Cherry Studio 导入集完全替换现有 models.json，
     # 不保留 WorkBuddy 中既不属于 Cherry Studio 的模型；写入前仍自动备份。
     merged = imported
-    merged.sort(key=lambda e: e.get("name", ""))
+    # 按名称升序排序（忽略大小写，避免大写字母排在小写字母之前）
+    merged.sort(key=lambda e: e.get("name", "").casefold())
 
     print(f"[info] 已启用模型(含 provider): {len(raw)}")
     print(f"[info] 可导入(已过滤无URL/无Key/非聊天模型): {len(imported)}")
