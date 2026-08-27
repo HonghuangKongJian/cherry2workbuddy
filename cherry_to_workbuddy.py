@@ -207,6 +207,46 @@ def build_wb_entry(provider, model):
     return entry
 
 
+def print_provider_summary(raw):
+    """在控制台打印 Provider 维度摘要：已启用 Provider 数量、有/无 API Key
+    的数量，以及各 Provider 提供的模型清单。
+
+    Args:
+        raw (list[dict]): ``read_cherry_models`` 返回结果，每项含 provider
+            与 model 字段。
+    """
+    groups = {}  # provider_id -> {"name", "provider", "models": []}
+    for item in raw:
+        p = item["provider"]
+        pid = p["provider_id"]
+        g = groups.setdefault(
+            pid,
+            {"name": p.get("name", pid), "provider": p, "models": []},
+        )
+        m = item["model"]
+        g["models"].append(m.get("name") or m.get("model_id"))
+
+    def _order(g):
+        # 有 Key 的 provider 排在前，其次按名称
+        return (0 if _resolve_api_key(g["provider"]) else 1, g["name"])
+
+    ordered = sorted(groups.values(), key=_order)
+    with_key = [g for g in ordered if _resolve_api_key(g["provider"])]
+    no_key = [g for g in ordered if not _resolve_api_key(g["provider"])]
+
+    print(
+        f"[summary] 已启用 Provider: {len(ordered)} 个 | "
+        f"有 Key: {len(with_key)} | 无 Key: {len(no_key)}"
+    )
+    print("[summary] Provider 明细 (有 Key 在前):")
+    for g in ordered:
+        has = bool(_resolve_api_key(g["provider"]))
+        tag = "[OK]" if has else "[--]"
+        print(f"  {tag} {g['name']}  ({len(g['models'])} 个模型)")
+        for mn in g["models"]:
+            print(f"        - {mn}")
+
+
 def main():
     dry_run = "--dry-run" in sys.argv
     print(f"[info] Cherry DB : {CHERRY_DB}")
@@ -217,6 +257,7 @@ def main():
         sys.exit(1)
 
     raw = read_cherry_models(CHERRY_DB)
+    print_provider_summary(raw)
     imported = []
     skipped = 0
     for item in raw:
