@@ -47,6 +47,7 @@ python cherry_to_workbuddy.py
 
 - 所属 Provider 未启用；
 - 解析不到 base URL；
+- 所属 Provider 无可用 API Key（无法鉴权）；
 - 仅含 `embedding` 能力（非聊天模型）。
 
 ## 数据来源

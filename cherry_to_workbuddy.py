@@ -169,11 +169,16 @@ def build_wb_entry(provider, model):
         model (dict): ``user_model`` 行字典。
 
     Returns:
-        dict | None: WorkBuddy 模型条目；不可导入时返回 None。
+        dict | None: WorkBuddy 模型条目；不可导入（无 base URL / 无 API Key /
+            embedding 模型 / 无 model_id）时返回 None。
     """
     base_url = _resolve_base_url(provider)
     if not base_url:
         return None  # 无可用 base URL，无法构造请求地址
+
+    api_key = _resolve_api_key(provider)
+    if not api_key:
+        return None  # 无可用 API Key，无法鉴权，跳过
 
     caps = _load_json_field(model.get("capabilities")) or []
     if "embedding" in [str(c).lower() for c in caps]:
@@ -191,7 +196,7 @@ def build_wb_entry(provider, model):
         "name": f"{provider.get('name', 'Custom')} / {display}",
         "vendor": "Custom",
         "url": base_url,
-        "apiKey": _resolve_api_key(provider),
+        "apiKey": api_key,
         "supportsToolCall": tool,
         "supportsImages": vision,
         "supportsReasoning": reasoning,
@@ -213,11 +218,11 @@ def main():
 
     raw = read_cherry_models(CHERRY_DB)
     imported = []
-    skipped_no_url = 0
+    skipped = 0
     for item in raw:
         entry = build_wb_entry(item["provider"], item["model"])
         if entry is None:
-            skipped_no_url += 1
+            skipped += 1
             continue
         imported.append(entry)
 
@@ -236,8 +241,8 @@ def main():
     merged.sort(key=lambda e: e.get("name", ""))
 
     print(f"[info] 已启用模型(含 provider): {len(raw)}")
-    print(f"[info] 可导入(已过滤无URL/embedding): {len(imported)}")
-    print(f"[info] 跳过(无URL/embedding): {skipped_no_url}")
+    print(f"[info] 可导入(已过滤无URL/无Key/embedding): {len(imported)}")
+    print(f"[info] 跳过(无URL/无Key/embedding): {skipped}")
     print(f"[info] 模式: 覆盖写入，将写入 {len(merged)} 条模型")
 
     if dry_run:
