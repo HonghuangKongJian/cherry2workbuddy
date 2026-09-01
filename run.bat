@@ -45,6 +45,22 @@ if %RC%==0 (
     echo [FAIL] Script exited with code: %RC%
 )
 echo.
+echo ============================================================
+echo   Sync WorkBuddy custom models -^> CodeBuddy
+echo ============================================================
+echo.
+
+%PY% sync_wb_models_to_cb.py %ARGS%
+set "RC2=%errorlevel%"
+
+echo.
+if %RC2%==0 (
+    echo [OK] CodeBuddy models.json synced.
+) else (
+    echo [FAIL] CodeBuddy sync exited with code: %RC2%
+)
+
+echo.
 echo Press any key to close...
 pause >nul
 popd

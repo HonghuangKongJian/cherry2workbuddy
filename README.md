@@ -15,6 +15,26 @@
 - **覆盖写入**：以导入集完全替换现有 `models.json`（不保留既不属于 Cherry Studio 的模型），写入前仍自动备份原文件。
 - **写入前自动备份**：原文件先备份再覆盖，避免误改。
 
+## Token 限制参数同步
+
+除能力字段外，脚本还会搬运 Cherry Studio 模型配置中的 Token 限制参数：
+
+| Cherry Studio 字段        | WorkBuddy 字段   | 说明                                              |
+| ------------------------- | ---------------- | ------------------------------------------------- |
+| `max_input_tokens`        | `maxInputTokens` | 最大输入 Token；缺失时回退使用 `context_window`   |
+| `max_output_tokens`       | `maxOutputTokens`| 最大输出 Token                                    |
+| `context_window`（回退）  | `maxInputTokens` | 仅当 `max_input_tokens` 为空时作为回退值带入      |
+
+参数取值优先级：`user_model` 中已保存的值 > 脚本顶部 `PRESET_TOKEN_DEFAULTS`
+的预设默认值（应对 Cherry Studio 仅显示、未落库的 preset 默认，如
+`deepseek-v4-flash` 的 1048576 / 393216）> 留空（沿用 WorkBuddy UI 默认值）。
+需为其它 preset 补充默认值时，编辑 `PRESET_TOKEN_DEFAULTS` 字典（键为
+Cherry Studio 的 `preset_model_id`）。
+
+当前默认仍为「完全覆盖」模式——每次同步会用 Cherry Studio 的导入集
+替换整个 `models.json`，WorkBuddy 中独有的模型（如 CF / opencode / modal 等）
+将被删除，请知悉此行为。
+
 ## 使用方法
 
 ```bash

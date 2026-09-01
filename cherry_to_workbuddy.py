@@ -40,6 +40,15 @@ WB_MODELS = os.environ.get("WB_MODELS", DEFAULT_WB_MODELS)
 # 视觉相关能力标记
 _VISION_TOKENS = ("vision", "image", "image-input", "multimodal", "image_generation")
 
+# Cherry Studio 预设模型的默认 Token 限制。
+# 当 user_model 中未显式保存 Token 参数时，按 preset_model_id 回退使用，
+# 以同步 Cherry Studio UI 显示的「预设默认值」（这些默认值仅显示、不落库）。
+# 注意：预设默认值可能随 Cherry Studio 版本变化，建议优先在 Cherry Studio
+# 模型设置中显式填入并保存所需值；此处仅作兜底。
+PRESET_TOKEN_DEFAULTS = {
+    "deepseek-v4-flash": {"maxInputTokens": 1048576, "maxOutputTokens": 393216},
+}
+
 
 def _load_json_field(raw):
     """解析可能为 JSON 字符串 / None 的字段。
@@ -82,8 +91,9 @@ def read_cherry_models(db_path):
 
     # 读取已启用 Model（含输入/输出模态与端点类型，用于推断能力）
     cur.execute(
-        "SELECT provider_id, model_id, name, is_enabled, capabilities, "
-        "input_modalities, output_modalities, endpoint_types, "
+        "SELECT provider_id, model_id, preset_model_id, name, is_enabled, "
+        "capabilities, input_modalities, output_modalities, endpoint_types, "
+        "context_window, max_input_tokens, max_output_tokens, "
         "reasoning FROM user_model WHERE is_enabled = 1"
     )
     models = cur.fetchall()
@@ -242,12 +252,11 @@ def build_wb_entry(provider, model):
     if not model_id:
         return None
 
-    display = model.get("name") or model_id
     tool, vision, audio, video, reasoning = _derive_capabilities(model)
 
     entry = {
         "id": model_id,
-        "name": f"{provider.get('name', 'Custom')} / {display}",
+        "name": provider.get('name', 'Custom'),
         "vendor": "Custom",
         "url": base_url,
         "apiKey": api_key,
@@ -262,6 +271,23 @@ def build_wb_entry(provider, model):
         entry["supportsVideo"] = True
     if reasoning:
         entry["reasoning"] = {"canDisableThinking": True}
+
+    # Token 限制参数：优先取 user_model 中已保存的值，缺失时回退到
+    # PRESET_TOKEN_DEFAULTS 中对应 preset 的预设默认值。
+    preset = PRESET_TOKEN_DEFAULTS.get(model.get("preset_model_id") or "")
+    max_out = model.get("max_output_tokens")
+    if not max_out and preset:
+        max_out = preset.get("maxOutputTokens")
+    if max_out:
+        entry["maxOutputTokens"] = int(max_out)
+
+    max_in = model.get("max_input_tokens")
+    if not max_in:
+        max_in = model.get("context_window")
+    if not max_in and preset:
+        max_in = preset.get("maxInputTokens")
+    if max_in:
+        entry["maxInputTokens"] = int(max_in)
     return entry
 
 
